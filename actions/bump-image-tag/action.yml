@@ -1,0 +1,97 @@
+name: bump-image-tag
+description: Set image.tag in apps/<app>/values.yaml of the platform repository (commit or pull request)
+
+inputs:
+  platform-repo:
+    description: owner/repo of the GitOps repository
+    required: true
+  token:
+    description: Token with contents:write (and pull-requests:write for mode=pr) on the platform repo
+    required: true
+  app:
+    description: Application name, equals the directory under apps/
+    required: true
+  tag:
+    description: New image tag
+    required: true
+  values-file:
+    description: Path of the values file; {app} is replaced with the application name
+    default: apps/{app}/values.yaml
+  mode:
+    description: commit (push to the branch) or pr (open a pull request)
+    default: commit
+  branch:
+    description: Target branch of the platform repository
+    default: main
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout platform repo
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.platform-repo }}
+        token: ${{ inputs.token }}
+        ref: ${{ inputs.branch }}
+        path: _platform
+
+    - name: Bump tag
+      shell: bash
+      working-directory: _platform
+      env:
+        APP: ${{ inputs.app }}
+        TAG: ${{ inputs.tag }}
+        VALUES_TEMPLATE: ${{ inputs.values-file }}
+        MODE: ${{ inputs.mode }}
+        BRANCH: ${{ inputs.branch }}
+        REPO: ${{ inputs.platform-repo }}
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+
+        [[ "$APP" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "invalid app name: $APP" >&2; exit 1; }
+        [[ "$TAG" =~ ^[A-Za-z0-9._-]+$ ]]    || { echo "invalid tag: $TAG" >&2; exit 1; }
+        [[ "$MODE" == commit || "$MODE" == pr ]] || { echo "invalid mode: $MODE" >&2; exit 1; }
+
+        file="${VALUES_TEMPLATE//\{app\}/$APP}"
+        [ -f "$file" ] || { echo "$file not found in $REPO" >&2; exit 1; }
+
+        # replace the tag line inside the top-level image: block only
+        awk -v tag="$TAG" '
+          /^image:/ { in_image = 1; print; next }
+          in_image && /^[^[:space:]#]/ { in_image = 0 }
+          in_image && /^[[:space:]]+tag:/ { sub(/tag:.*/, "tag: \"" tag "\""); done = 1 }
+          { print }
+          END { if (!done) exit 3 }
+        ' "$file" > "$file.new" || { echo "no image.tag in $file" >&2; rm -f "$file.new"; exit 1; }
+        mv "$file.new" "$file"
+
+        if git diff --quiet; then
+          echo "tag already $TAG, nothing to do"
+          exit 0
+        fi
+
+        git config user.name "ci-templates[bot]"
+        git config user.email "ci-templates[bot]@users.noreply.github.com"
+        msg="chore($APP): bump image to $TAG"
+
+        if [ "$MODE" = commit ]; then
+          git commit -am "$msg"
+          for attempt in 1 2 3; do
+            git push origin "HEAD:$BRANCH" && exit 0
+            git pull --rebase origin "$BRANCH"
+          done
+          echo "push failed after 3 attempts" >&2
+          exit 1
+        fi
+
+        head="bump/$APP-$TAG"
+        git checkout -b "$head"
+        git commit -am "$msg"
+        git push --force origin "$head"
+        curl -fsS -X POST \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          -H "Accept: application/vnd.github+json" \
+          "https://api.github.com/repos/$REPO/pulls" \
+          -d "$(jq -n --arg t "$msg" --arg h "$head" --arg b "$BRANCH" '{title:$t, head:$h, base:$b}')" \
+          >/dev/null

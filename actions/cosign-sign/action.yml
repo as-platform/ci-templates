@@ -1,0 +1,39 @@
+name: cosign-sign
+description: Sign an image by digest with a key and optionally attach an SBOM attestation
+
+inputs:
+  ref:
+    description: Image reference with digest, registry/repo@sha256:...
+    required: true
+  key:
+    description: Cosign private key (contents)
+    required: true
+  password:
+    description: Cosign key password
+    required: true
+  sbom:
+    description: Path to an SPDX JSON SBOM to attest (skipped when empty)
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Sign
+      shell: bash
+      env:
+        REF: ${{ inputs.ref }}
+        COSIGN_PRIVATE_KEY: ${{ inputs.key }}
+        COSIGN_PASSWORD: ${{ inputs.password }}
+      run: cosign sign --yes --key env://COSIGN_PRIVATE_KEY --tlog-upload=false "$REF"
+
+    - name: Attest SBOM
+      if: inputs.sbom != ''
+      shell: bash
+      env:
+        REF: ${{ inputs.ref }}
+        SBOM: ${{ inputs.sbom }}
+        COSIGN_PRIVATE_KEY: ${{ inputs.key }}
+        COSIGN_PASSWORD: ${{ inputs.password }}
+      run: |
+        cosign attest --yes --key env://COSIGN_PRIVATE_KEY --tlog-upload=false \
+          --type spdxjson --predicate "$SBOM" "$REF"

@@ -1,0 +1,22 @@
+name: zot-login
+description: Log buildah in to the Zot registry
+
+inputs:
+  registry:
+    description: Registry host without scheme
+    required: true
+  username:
+    required: true
+  password:
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: buildah login
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        ZOT_USER: ${{ inputs.username }}
+        ZOT_PASSWORD: ${{ inputs.password }}
+      run: printf '%s' "$ZOT_PASSWORD" | buildah login --username "$ZOT_USER" --password-stdin "$REGISTRY"
