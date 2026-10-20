@@ -1,0 +1,99 @@
+name: monorepo-ci
+
+on:
+  workflow_call:
+    inputs:
+      services:
+        description: 'JSON array: [{"name":"api","path":"services/api","language":"go|node|python"}]'
+        type: string
+        required: true
+      runner:
+        description: JSON array of runs-on labels
+        type: string
+        default: '["self-hosted","homelab"]'
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    outputs:
+      go: ${{ steps.select.outputs.go }}
+      node: ${{ steps.select.outputs.node }}
+      python: ${{ steps.select.outputs.python }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select changed services
+        id: select
+        env:
+          SERVICES: ${{ inputs.services }}
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          case "$EVENT" in
+            pull_request*) base="$PR_BASE" ;;
+            push)          base="$PUSH_BEFORE" ;;
+            *)             base="" ;;
+          esac
+
+          if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            selected="$SERVICES"
+          else
+            changed=$(git diff --name-only "$base" "$HEAD_SHA")
+            # a change outside every service path (shared config) selects all services
+            selected=$(jq -c --arg changed "$changed" '
+              . as $svcs
+              | ($changed | split("\n") | map(select(length > 0 and (endswith(".md") | not)))) as $files
+              | if ($files | map(select(. as $f | $svcs | any(.path as $p | $p == "." or ($f | startswith($p + "/"))) | not)) | length) > 0
+                then $svcs
+                else $svcs | map(select(.path as $p | $files | any($p == "." or startswith($p + "/"))))
+                end
+            ' <<< "$SERVICES")
+          fi
+
+          for lang in go node python; do
+            echo "${lang}=$(jq -c --arg l "$lang" 'map(select(.language == $l))' <<< "$selected")" >> "$GITHUB_OUTPUT"
+          done
+
+  go:
+    needs: detect
+    if: needs.detect.outputs.go != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.detect.outputs.go) }}
+    uses: as-platform/ci-templates/.github/workflows/go-ci.yml@main
+    with:
+      working-directory: ${{ matrix.service.path }}
+      runner: ${{ inputs.runner }}
+
+  node:
+    needs: detect
+    if: needs.detect.outputs.node != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.detect.outputs.node) }}
+    uses: as-platform/ci-templates/.github/workflows/node-ci.yml@main
+    with:
+      working-directory: ${{ matrix.service.path }}
+      runner: ${{ inputs.runner }}
+
+  python:
+    needs: detect
+    if: needs.detect.outputs.python != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.detect.outputs.python) }}
+    uses: as-platform/ci-templates/.github/workflows/python-ci.yml@main
+    with:
+      working-directory: ${{ matrix.service.path }}
+      runner: ${{ inputs.runner }}

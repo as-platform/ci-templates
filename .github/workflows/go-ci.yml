@@ -1,0 +1,64 @@
+name: go-ci
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        type: string
+        default: "."
+      go-version-file:
+        description: go.mod path relative to working-directory
+        type: string
+        default: go.mod
+      golangci-lint-version:
+        type: string
+        default: latest
+      race:
+        description: Run tests with -race (needs gcc on the runner)
+        type: boolean
+        default: false
+      runner:
+        description: JSON array of runs-on labels
+        type: string
+        default: '["self-hosted","homelab"]'
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ inputs.working-directory }}/${{ inputs.go-version-file }}
+          cache-dependency-path: ${{ inputs.working-directory }}/go.sum
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: ${{ inputs.golangci-lint-version }}
+          working-directory: ${{ inputs.working-directory }}
+
+      - name: Test
+        env:
+          RACE: ${{ inputs.race }}
+        run: |
+          flags=(-covermode=atomic -coverprofile="$RUNNER_TEMP/cover.out")
+          if [ "$RACE" = true ]; then flags+=(-race); fi
+          go test "${flags[@]}" ./...
+          go tool cover -func="$RUNNER_TEMP/cover.out" | tail -n 1
+
+      - name: Build
+        run: go build ./...
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ strategy.job-index }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cover.out
+          if-no-files-found: ignore

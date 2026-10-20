@@ -1,0 +1,53 @@
+name: python-ci
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        type: string
+        default: "."
+      python-version:
+        description: Keep in sync with the golden runtime-python image
+        type: string
+        default: "3.11"
+      type-check:
+        description: Run mypy
+        type: boolean
+        default: false
+      runner:
+        description: JSON array of runs-on labels
+        type: string
+        default: '["self-hosted","homelab"]'
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+          enable-cache: true
+          cache-dependency-glob: ${{ inputs.working-directory }}/uv.lock
+
+      - name: Install
+        run: uv sync --frozen
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Type check
+        if: inputs.type-check
+        run: uv run mypy .
+
+      - name: Test
+        run: uv run pytest

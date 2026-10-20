@@ -1,0 +1,51 @@
+name: node-ci
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        type: string
+        default: "."
+      node-version:
+        type: string
+        default: "22"
+      runner:
+        description: JSON array of runs-on labels
+        type: string
+        default: '["self-hosted","homelab"]'
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Install
+        run: |
+          corepack enable
+          if [ -f pnpm-lock.yaml ]; then
+            echo "RUN=pnpm run" >> "$GITHUB_ENV"
+            pnpm install --frozen-lockfile
+          elif [ -f yarn.lock ]; then
+            echo "RUN=yarn run" >> "$GITHUB_ENV"
+            yarn install --immutable
+          else
+            echo "RUN=npm run" >> "$GITHUB_ENV"
+            npm ci
+          fi
+
+      - name: Lint, typecheck, test, build
+        run: |
+          for script in lint typecheck test build; do
+            $RUN --if-present "$script"
+          done

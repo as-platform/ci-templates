@@ -1,0 +1,51 @@
+name: deploy-bump
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: Application name, equals apps/<app> in the platform repo
+        type: string
+        required: true
+      tag:
+        description: Image tag to deploy
+        type: string
+        required: true
+      platform-repo:
+        type: string
+        default: as-platform/platform
+      values-file:
+        type: string
+        default: apps/{app}/values.yaml
+      mode:
+        description: commit or pr
+        type: string
+        default: commit
+      runner:
+        description: JSON array of runs-on labels
+        type: string
+        default: '["self-hosted","homelab"]'
+    secrets:
+      PLATFORM_TOKEN:
+        description: Token with write access to the platform repo
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-bump-${{ inputs.app }}
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    steps:
+      - uses: as-platform/ci-templates/actions/bump-image-tag@main
+        with:
+          platform-repo: ${{ inputs.platform-repo }}
+          token: ${{ secrets.PLATFORM_TOKEN }}
+          app: ${{ inputs.app }}
+          tag: ${{ inputs.tag }}
+          values-file: ${{ inputs.values-file }}
+          mode: ${{ inputs.mode }}

@@ -1,0 +1,49 @@
+name: security
+
+on:
+  workflow_call:
+    inputs:
+      severity:
+        type: string
+        default: HIGH,CRITICAL
+      sast:
+        description: Run Semgrep
+        type: boolean
+        default: true
+      runner:
+        description: JSON array of runs-on labels
+        type: string
+        default: '["self-hosted","homelab"]'
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Secrets (gitleaks)
+        run: gitleaks detect --source . --no-banner --redact
+
+      - name: Dependencies, misconfig, secrets in files (trivy)
+        env:
+          SEVERITY: ${{ inputs.severity }}
+        run: |
+          trivy fs --scanners vuln,secret,misconfig \
+            --severity "$SEVERITY" --ignore-unfixed --exit-code 1 .
+
+      - name: Dockerfiles (hadolint)
+        run: |
+          find . -name 'Dockerfile*' -not -path '*/node_modules/*' -not -path './.git/*' -print0 \
+            | xargs -0 -r -n1 hadolint --failure-threshold warning
+
+      - uses: astral-sh/setup-uv@v6
+        if: inputs.sast
+
+      - name: SAST (semgrep)
+        if: inputs.sast
+        run: uvx semgrep scan --config p/default --error --metrics=off --quiet .
