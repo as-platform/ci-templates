@@ -27,8 +27,16 @@ on:
         description: KEY=VALUE, one per line
         type: string
         default: ""
+      tags:
+        description: Explicit tags, space separated; the first is the primary one. Default is sha-<7 chars>
+        type: string
+        default: ""
       extra-tags:
         description: Additional tags, space separated
+        type: string
+        default: ""
+      smoke:
+        description: Shell command run inside the built image (needs bash in the image)
         type: string
         default: ""
       push:
@@ -53,7 +61,7 @@ on:
         required: false
     outputs:
       tag:
-        description: Primary tag, sha-<7 chars>
+        description: Primary tag (first of tags, default sha-<7 chars>)
         value: ${{ jobs.build.outputs.tag }}
       digest:
         description: Pushed manifest digest (empty when push=false)
@@ -80,7 +88,9 @@ jobs:
       DOCKERFILE: ${{ inputs.dockerfile }}
       TARGET: ${{ inputs.target }}
       BUILD_ARGS: ${{ inputs.build-args }}
+      TAGS_INPUT: ${{ inputs.tags }}
       EXTRA_TAGS: ${{ inputs.extra-tags }}
+      SMOKE: ${{ inputs.smoke }}
       ZOT_USER: ${{ secrets.ZOT_USER }}
     steps:
       - uses: actions/checkout@v4
@@ -88,8 +98,13 @@ jobs:
       - name: Compute refs
         id: refs
         run: |
-          tag="sha-${GITHUB_SHA::7}"
-          tags="$tag $EXTRA_TAGS"
+          if [ -n "${TAGS_INPUT// /}" ]; then
+            read -r tag _ <<< "$TAGS_INPUT"
+            tags="$TAGS_INPUT $EXTRA_TAGS"
+          else
+            tag="sha-${GITHUB_SHA::7}"
+            tags="$tag $EXTRA_TAGS"
+          fi
           if [ "$GITHUB_REF_TYPE" = tag ]; then tags="$tags $GITHUB_REF_NAME"; fi
           {
             echo "REPO=${REGISTRY}/${NAMESPACE}/${NAME}"
@@ -122,6 +137,13 @@ jobs:
             --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --tag "${REPO}:${TAG}" \
             "$CONTEXT"
+
+      - name: Smoke test
+        if: inputs.smoke != ''
+        run: |
+          ctr=$(buildah from "${REPO}:${TAG}")
+          buildah run "$ctr" -- bash -c "$SMOKE"
+          buildah rm "$ctr"
 
       - name: Export archive
         run: buildah push "${REPO}:${TAG}" "oci-archive:${ARCHIVE}"
