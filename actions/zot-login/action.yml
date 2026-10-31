@@ -1,5 +1,5 @@
 name: zot-login
-description: Log buildah in to the Zot registry
+description: Log buildah and cosign in to the Zot registry
 
 inputs:
   registry:
@@ -19,4 +19,7 @@ runs:
         REGISTRY: ${{ inputs.registry }}
         ZOT_USER: ${{ inputs.username }}
         ZOT_PASSWORD: ${{ inputs.password }}
-      run: printf '%s' "$ZOT_PASSWORD" | buildah login --username "$ZOT_USER" --password-stdin "$REGISTRY"
+      run: |
+        printf '%s' "$ZOT_PASSWORD" | buildah login --username "$ZOT_USER" --password-stdin "$REGISTRY"
+        mkdir -p "$HOME/.docker"
+        printf '%s' "$ZOT_PASSWORD" | buildah login --authfile "$HOME/.docker/config.json" --username "$ZOT_USER" --password-stdin "$REGISTRY"
