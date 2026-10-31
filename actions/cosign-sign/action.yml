@@ -24,7 +24,7 @@ runs:
         REF: ${{ inputs.ref }}
         COSIGN_PRIVATE_KEY: ${{ inputs.key }}
         COSIGN_PASSWORD: ${{ inputs.password }}
-      run: cosign sign --yes --key env://COSIGN_PRIVATE_KEY --tlog-upload=false "$REF"
+      run: cosign sign --yes --key env://COSIGN_PRIVATE_KEY --use-signing-config=false --new-bundle-format=false --tlog-upload=false "$REF"
 
     - name: Attest SBOM
       if: inputs.sbom != ''
@@ -35,5 +35,5 @@ runs:
         COSIGN_PRIVATE_KEY: ${{ inputs.key }}
         COSIGN_PASSWORD: ${{ inputs.password }}
       run: |
-        cosign attest --yes --key env://COSIGN_PRIVATE_KEY --tlog-upload=false \
+        cosign attest --yes --key env://COSIGN_PRIVATE_KEY --use-signing-config=false --new-bundle-format=false --tlog-upload=false \
           --type spdxjson --predicate "$SBOM" "$REF"
