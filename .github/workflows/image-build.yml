@@ -146,7 +146,7 @@ jobs:
           buildah rm "$ctr"
 
       - name: Export archive
-        run: buildah push "${REPO}:${TAG}" "oci-archive:${ARCHIVE}"
+        run: buildah push "${REPO}:${TAG}" "docker-archive:${ARCHIVE}:${REPO}:${TAG}"
 
       - name: Trivy
         env:
@@ -157,7 +157,7 @@ jobs:
           trivy image --input "$ARCHIVE" --severity HIGH,CRITICAL --ignore-unfixed --exit-code "$code"
 
       - name: SBOM
-        run: syft scan "oci-archive:${ARCHIVE}" -o "spdx-json=${SBOM}"
+        run: syft scan "docker-archive:${ARCHIVE}" -o "spdx-json=${SBOM}"
 
       - name: Push
         id: push
