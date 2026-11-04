@@ -1,34 +1,36 @@
 # ci-templates
 
-Reusable workflows и composite actions для CI/CD сервисов. Сервис из шаблона Backstage подключает их тонкими вызывающими workflow.
+🇷🇺 [Русская версия](README_RUS.md)
 
-Все workflow выполняются на эфемерном раннере `["self-hosted","homelab"]` (параметр `runner`). Каждый job поднимает отдельный под через KEDA, поэтому внутри workflow один job с последовательными шагами, без параллельных jobs.
+Reusable workflows and composite actions for service CI/CD. A service created from a Backstage template connects to them through thin caller workflows.
 
-## Workflow
+All workflows run on an ephemeral runner `["self-hosted","homelab"]` (the `runner` parameter). Each job spins up a separate pod through KEDA, so every workflow has a single job with sequential steps and no parallel jobs.
+
+## Workflows
 
 
-| Файл              | Что делает                                                              |
+| File              | What it does                                                            |
 | ----------------- | ----------------------------------------------------------------------- |
-| `go-ci.yml`       | golangci-lint, `go test` с покрытием, `go build`                        |
+| `go-ci.yml`       | golangci-lint, `go test` with coverage, `go build`                      |
 | `python-ci.yml`   | uv sync, ruff, (mypy), pytest                                           |
-| `node-ci.yml`     | pnpm/yarn/npm, скрипты `lint`, `typecheck`, `test`, `build` (если есть) |
-| `monorepo-ci.yml` | выбирает изменённые сервисы по пути и вызывает CI нужного языка         |
+| `node-ci.yml`     | pnpm/yarn/npm, `lint`, `typecheck`, `test`, `build` scripts (if present) |
+| `monorepo-ci.yml` | picks changed services by path and calls the CI for the right language  |
 | `security.yml`    | gitleaks, trivy fs (vuln, secret, misconfig), hadolint, semgrep         |
-| `image-build.yml` | buildah build, Trivy, SBOM, push в Zot, cosign sign и attest            |
-| `deploy-bump.yml` | меняет `image.tag` в `apps/<app>/values.yaml` репозитория platform      |
+| `image-build.yml` | buildah build, Trivy, SBOM, push to Zot, cosign sign and attest         |
+| `deploy-bump.yml` | changes `image.tag` in `apps/<app>/values.yaml` of the platform repository |
 
 
 ## Actions
 
 
-| Каталог                  | Назначение                                     |
-| ------------------------ | ---------------------------------------------- |
-| `actions/zot-login`      | `buildah login` в Zot                          |
-| `actions/cosign-sign`    | подпись образа по дайджесту и attestation SBOM |
-| `actions/bump-image-tag` | правка тега в platform: прямой коммит или PR   |
+| Directory                | Purpose                                            |
+| ------------------------ | -------------------------------------------------- |
+| `actions/zot-login`      | `buildah login` to Zot                             |
+| `actions/cosign-sign`    | signs the image by digest and attests the SBOM     |
+| `actions/bump-image-tag` | edits the tag in platform: direct commit or PR     |
 
 
-## Пример: сервис на Go
+## Example: a Go service
 
 ```yaml
 name: ci
@@ -62,7 +64,7 @@ jobs:
     secrets: inherit
 ```
 
-## Пример: монорепозиторий
+## Example: a monorepo
 
 ```yaml
 jobs:
@@ -74,32 +76,31 @@ jobs:
          {"name":"web","path":"services/web","language":"node"}]
 ```
 
-Если изменился файл вне путей сервисов (общий конфиг), запускаются все сервисы. Изменения только в `*.md` игнорируются. Образы монорепо собираются вызовами `image-build.yml` с `context` и `name` каждого сервиса.
+If a file outside the service paths changes (a shared config), all services run. Changes to `*.md` files only are ignored. Monorepo images are built by calling `image-build.yml` with each service's `context` and `name`.
 
-## Что нужно настроить
-
-
-| Тип        | Имя                                     | Где используется                                       |
-| ---------- | --------------------------------------- | ------------------------------------------------------ |
-| переменная | `ZOT_REGISTRY`                          | `image-build`                                          |
-| секрет     | `ZOT_USER`, `ZOT_PASSWORD`              | `image-build`                                          |
-| секрет     | `COSIGN_PRIVATE_KEY`, `COSIGN_PASSWORD` | `image-build`                                          |
-| секрет     | `PLATFORM_TOKEN`                        | `deploy-bump`: доступ на запись в репозиторий platform |
+## What to configure
 
 
-Эти значения удобнее задать один раз на уровне организации.
+| Type     | Name                                    | Where it is used                                          |
+| -------- | --------------------------------------- | --------------------------------------------------------- |
+| variable | `ZOT_REGISTRY`                          | `image-build`                                             |
+| secret   | `ZOT_USER`, `ZOT_PASSWORD`              | `image-build`                                             |
+| secret   | `COSIGN_PRIVATE_KEY`, `COSIGN_PASSWORD` | `image-build`                                             |
+| secret   | `PLATFORM_TOKEN`                        | `deploy-bump`: write access to the platform repository    |
 
-## Контракт с остальными репозиториями
 
-- Репозиторий должен быть публичным, либо в его настройках Actions нужно разрешить доступ из организации. Иначе сервисы не смогут вызывать workflow.
+It is more convenient to set these values once at the organization level.
 
-- `values.yaml` в `platform/apps/<app>/` должен содержать блок `image:` со строкой `tag:`. Другие `tag:` вне этого блока не затрагиваются.
-- Для Python версия по умолчанию 3.11 совпадает с `golden/runtime:python`.
-- Образы для `Dockerfile` сервисов берутся из `golden-images` (`golden/go-builder`, `golden/runtime:go` и т.д.).
+## Contract with the other repositories
 
-## Ограничения
+- The repository must be public, or Actions access from the organization must be allowed in its settings. Otherwise services cannot call the workflows.
 
-- На раннере нет gcc, поэтому `go test -race` выключен по умолчанию (параметр `race`).
-- `golangci-lint` по умолчанию `latest`; для воспроизводимости зафиксируй `golangci-lint-version`.
-- Версии actions заданы тегами; Renovate закрепит их по дайджестам.
+- `values.yaml` in `platform/apps/<app>/` must contain an `image:` block with a `tag:` line. Other `tag:` entries outside this block are left untouched.
+- For Python the default version 3.11 matches `golden/runtime:python`.
+- Images for service `Dockerfile`s come from `golden-images` (`golden/go-builder`, `golden/runtime:go`, etc.).
 
+## Limitations
+
+- The runner has no gcc, so `go test -race` is off by default (the `race` parameter).
+- `golangci-lint` defaults to `latest`; pin `golangci-lint-version` for reproducibility.
+- Action versions are set by tags; Renovate will pin them by digest.
