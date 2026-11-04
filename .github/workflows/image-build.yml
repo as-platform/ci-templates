@@ -46,6 +46,10 @@ on:
       fail-on-vulns:
         type: boolean
         default: true
+      use-cache:
+        description: Reuse layers cached in <registry>/cache/<namespace>/<name> (false forces a full rebuild; push still refreshes the cache)
+        type: boolean
+        default: true
       runner:
         description: JSON array of runs-on labels
         type: string
@@ -124,12 +128,18 @@ jobs:
           password: ${{ secrets.ZOT_PASSWORD }}
 
       - name: Build
+        env:
+          USE_CACHE: ${{ inputs.use-cache }}
+          PUSH: ${{ inputs.push }}
         run: |
           args=()
           if [ -n "$TARGET" ]; then args+=(--target "$TARGET"); fi
           while IFS= read -r line; do
             if [ -n "$line" ]; then args+=(--build-arg "$line"); fi
           done <<< "$BUILD_ARGS"
+          cache_repo="${REGISTRY}/cache/${NAMESPACE}/${NAME}"
+          if [ "$USE_CACHE" = true ]; then args+=(--cache-from "$cache_repo"); fi
+          if [ "$PUSH" = true ]; then args+=(--cache-to "$cache_repo"); fi
           buildah build --format oci --layers "${args[@]}" \
             --file "${CONTEXT}/${DOCKERFILE}" \
             --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
