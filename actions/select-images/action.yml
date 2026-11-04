@@ -1,0 +1,66 @@
+name: select-images
+description: Pick images to build from images.json by dispatch selection, schedule or changed paths
+
+inputs:
+  images-file:
+    description: Path to images.json
+    required: true
+  selection:
+    description: Comma-separated dispatch selection (name or name:variant), empty or "all" for every image
+    default: ""
+  workflow:
+    description: Workflow file name to query for the last successful run
+    default: build.yml
+  token:
+    description: Token for the GitHub API
+    default: ${{ github.token }}
+
+outputs:
+  matrix:
+    description: JSON object with an include array for strategy.matrix
+    value: ${{ steps.select.outputs.matrix }}
+  empty:
+    description: "true when the include array is empty"
+    value: ${{ steps.select.outputs.empty }}
+
+runs:
+  using: composite
+  steps:
+    - name: base
+      id: base
+      shell: bash
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        REF: ${{ github.ref }}
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        REPO: ${{ github.repository }}
+        WORKFLOW: ${{ inputs.workflow }}
+        RUN_ID: ${{ github.run_id }}
+        GH_TOKEN: ${{ inputs.token }}
+        HEAD_SHA: ${{ github.sha }}
+      run: |
+        set -euo pipefail
+        base=""
+        head="$HEAD_SHA"
+        if [ "$EVENT_NAME" = "pull_request" ]; then
+          base=$(git merge-base "$PR_BASE_SHA" "$PR_HEAD_SHA")
+          head="$PR_HEAD_SHA"
+        elif [ "$EVENT_NAME" = "push" ] && [ "$REF" = "refs/heads/main" ]; then
+          runs=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW}/runs?branch=main&status=success&per_page=10" || true)
+          base=$(jq -r --arg run_id "$RUN_ID" '[.workflow_runs[] | select((.id | tostring) != $run_id)][0].head_sha // ""' <<< "$runs")
+        fi
+        echo "base=$base" >> "$GITHUB_OUTPUT"
+        echo "head=$head" >> "$GITHUB_OUTPUT"
+
+    - name: select
+      id: select
+      shell: bash
+      env:
+        IMAGES_FILE: ${{ inputs.images-file }}
+        SELECTION: ${{ inputs.selection }}
+        EVENT_NAME: ${{ github.event_name }}
+        BASE: ${{ steps.base.outputs.base }}
+        HEAD: ${{ steps.base.outputs.head }}
+      run: ${{ github.action_path }}/select.sh
