@@ -46,4 +46,4 @@ jobs:
 
       - name: SAST (semgrep)
         if: inputs.sast
-        run: uvx semgrep scan --config p/default --error --metrics=off --quiet .
+        run: uvx --python 3.13 semgrep scan --config p/default --error --metrics=off --quiet .
