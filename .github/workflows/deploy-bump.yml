@@ -13,7 +13,7 @@ on:
         required: true
       platform-repo:
         type: string
-        default: as-platform/platform
+        default: as-platform/k3s
       values-file:
         type: string
         default: apps/{app}/values.yaml
